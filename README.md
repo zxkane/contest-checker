@@ -1,1 +1,1 @@
-# replace this
+# simple contest checker system
