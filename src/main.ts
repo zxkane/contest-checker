@@ -23,6 +23,21 @@ export class ContestCheckerStack extends Stack {
     const checkerFunc = new NodejsFunction(this, 'checker', {
       entry: path.join(__dirname, './lambda.d/checker/index.ts'),
       handler: 'handler',
+      bundling: {
+        commandHooks: {
+          beforeBundling(inputDir: string, outputDir: string): string[] {
+            return [
+              `cp ${inputDir}/src/lambda.d/checker/award.txt ${outputDir}`,
+            ];
+          },
+          afterBundling(_inputDir: string, _outputDir: string): string[] {
+            return [];
+          },
+          beforeInstall() {
+            return [];
+          },
+        },
+      },
       architecture: Architecture.ARM_64,
       timeout: Duration.seconds(60),
       memorySize: 128,

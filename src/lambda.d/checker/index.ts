@@ -1,6 +1,7 @@
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBClient, GetItemCommand, UpdateItemCommand, AttributeValue } from '@aws-sdk/client-dynamodb';
 import { APIGatewayProxyHandler } from 'aws-lambda';
+import * as fs from 'fs';
 
 const logger = new Logger({
   logLevel: 'DEBUG',
@@ -26,12 +27,24 @@ const decode = (str: string):string => Buffer.from(str, 'base64').toString('bina
 const PREFIX = 'event-';
 const PASS = 'pass';
 const FAIL = 'fail';
+const AWARD = fs.readFileSync('./award.txt','utf8');
 
+/**
+ * Table schema,
+ * {
+ *   "N": "aaa", # nickname
+ *   "UT": 1642828946940, # UpdatedTime
+ *   "CR": "111sss", # ContestResult 
+ *   "pk": "20220101-630794479242", # partition key
+ *   "CS": "pass", # ContestStatus
+ *   "AC": "09870" # AwardCode
+  }
+ */
 export const handler: ContestCheckEventHandler = async (para, _context)=> {
   logger.debug(`Receiving contest checking event ${JSON.stringify(para, null, 2)}.`);
-
+  
   var statusCode = 200;
-  var body;
+  var body: string;
   
   if (para.body) {
     const requestBody = para.isBase64Encoded ? decode(para.body) : para.body;
@@ -64,21 +77,21 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 S: `${event.eventId}-${para.requestContext.accountId}`,
               },
             },
-            ProjectionExpression: 'ContestStatus, Award',
+            ProjectionExpression: 'CS, AC',
           }));
           var contestRt: string | undefined;
-          var award: string | undefined;
-          if (contestResp.Item && contestResp.Item.ContestStatus.S == PASS) {
+          var awardCode: string | undefined;
+          if (contestResp.Item && contestResp.Item.CS.S == PASS) {
             contestRt = PASS;
-            award = contestResp.Item.Award.S!;
+            awardCode = contestResp.Item.AC.S!;
           }
           
           if (!contestRt) {
             contestRt = FAIL;
-            award = '09870';
+            awardCode = '09870';
             contestRt = PASS;
             
-            var updateExpression = 'Set ContestStatus = :status, UpdatedTime = :time, Nickname = :name, ContestRt = :rt';
+            var updateExpression = 'Set CS = :status, UT = :time, N = :name, CR = :rt';
             const expressionAttributeValues: {[k: string]: AttributeValue} = {
                 ':status': {
                   S: contestRt,
@@ -93,10 +106,10 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   S: event.result,
                 },
               };
-            if (award) {
-              updateExpression += `, Award = :award`;
+            if (awardCode) {
+              updateExpression += `, AC = :award`;
               const value: AttributeValue = {
-                S: award,
+                S: awardCode,
               };
               const key: string = ':award';
               expressionAttributeValues[`${key}`] = value;
@@ -116,20 +129,21 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               },
               UpdateExpression: updateExpression,
               ExpressionAttributeValues: expressionAttributeValues,
-              ConditionExpression: contestResp.Item ? 'ContestStatus = :fail' : 'attribute_not_exists(ContestStatus)',
+              ConditionExpression: contestResp.Item ? 'CS = :fail' : 'attribute_not_exists(CS)',
               ReturnValues: 'NONE',
             };
             
             logger.debug(`UpdateItemCommand is ${JSON.stringify(updateParams, null, 2)}`);
             await client.send(new UpdateItemCommand(updateParams));
             
-            logger.debug(`Recorded the result. eventId: ${event.eventId}, account: ${para.requestContext.accountId}, award: ${award}, result: ${event.result}`);
+            logger.debug(`Recorded the contest result. eventId: ${event.eventId}, 
+              account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${event.result}`);
           }
           
           if (PASS === contestRt)
-            body = `Conguraltion! Your award is ${award}`;
+            body = `${AWARD}\n\t感谢您的参与，恭喜获得星巴克兑换码: ${awardCode}`;
           else
-            body = 'Your challenge is failed. You CAN TRY AGAIN!!!';
+            body = '${AWARD}\n\t很抱歉，您没有获得奖励。您可以再次提交尝试。';
         } else {
           statusCode = 404;
           body = `the given event ${event.eventId} is expired.`;
@@ -148,7 +162,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
 
   const result = {
     statusCode,
-    body: JSON.stringify(body),
+    body: body!,
     isBase64Encoded: false,
   };
   logger.debug(`response result is ${JSON.stringify(result, null, 2)}`);
