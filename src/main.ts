@@ -102,7 +102,7 @@ export class ContestCheckerStack extends Stack {
         validateRequestBody: true,
       },
     });
-    
+
     new CfnOutput(this, 'CheckFuncArn', {
       value: checkerFunc.functionArn,
       description: 'arn of checker func',
