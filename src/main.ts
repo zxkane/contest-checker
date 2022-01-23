@@ -57,6 +57,7 @@ export class ContestCheckerStack extends Stack {
         TABLE: contestTable.tableName,
         EVENT_INDEX_NAME: eventIndexName,
       },
+      reservedConcurrentExecutions: 10,
     });
     contestTable.grantReadWriteData(checkerFunc);
     checkerFunc.addPermission('api-gateway', {

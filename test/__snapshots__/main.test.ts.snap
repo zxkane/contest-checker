@@ -614,6 +614,7 @@ Object {
         },
         "Handler": "index.handler",
         "MemorySize": 128,
+        "ReservedConcurrentExecutions": 10,
         "Role": Object {
           "Fn::GetAtt": Array [
             "checkerServiceRoleEA757245",
