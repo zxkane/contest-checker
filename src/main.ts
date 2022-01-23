@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
 import { RestApi, MethodLoggingLevel, LambdaIntegration, JsonSchemaType } from 'aws-cdk-lib/aws-apigateway';
-import { Table, AttributeType, TableEncryption } from 'aws-cdk-lib/aws-dynamodb';
+import { Table, AttributeType, TableEncryption, BillingMode } from 'aws-cdk-lib/aws-dynamodb';
 import { ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Tracing } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -18,6 +18,7 @@ export class ContestCheckerStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
       contributorInsightsEnabled: true,
       encryption: TableEncryption.AWS_MANAGED,
+      billingMode: BillingMode.PAY_PER_REQUEST,
     });
 
     const checkerFunc = new NodejsFunction(this, 'checker', {
