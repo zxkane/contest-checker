@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
 import { RestApi, MethodLoggingLevel, LambdaIntegration, JsonSchemaType } from 'aws-cdk-lib/aws-apigateway';
+import { BackupPlan, BackupResource } from 'aws-cdk-lib/aws-backup';
 import { Table, AttributeType, TableEncryption, BillingMode } from 'aws-cdk-lib/aws-dynamodb';
 import { ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Tracing } from 'aws-cdk-lib/aws-lambda';
@@ -19,6 +20,14 @@ export class ContestCheckerStack extends Stack {
       contributorInsightsEnabled: true,
       encryption: TableEncryption.AWS_MANAGED,
       billingMode: BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecovery: true,
+    });
+
+    const plan = BackupPlan.dailyWeeklyMonthly5YearRetention(this, 'DynamodbPlan');
+    plan.addSelection('Selection', {
+      resources: [
+        BackupResource.fromDynamoDbTable(contestTable), // A DynamoDB table
+      ],
     });
 
     const checkerFunc = new NodejsFunction(this, 'checker', {

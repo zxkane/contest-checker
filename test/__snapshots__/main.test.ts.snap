@@ -66,12 +66,132 @@ Object {
             "KeyType": "HASH",
           },
         ],
+        "PointInTimeRecoverySpecification": Object {
+          "PointInTimeRecoveryEnabled": true,
+        },
         "SSESpecification": Object {
           "SSEEnabled": true,
         },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
+    },
+    "DynamodbPlan329A6CBF": Object {
+      "Properties": Object {
+        "BackupPlan": Object {
+          "BackupPlanName": "DynamodbPlan",
+          "BackupPlanRule": Array [
+            Object {
+              "Lifecycle": Object {
+                "DeleteAfterDays": 35,
+              },
+              "RuleName": "Daily",
+              "ScheduleExpression": "cron(0 5 * * ? *)",
+              "TargetBackupVault": Object {
+                "Fn::GetAtt": Array [
+                  "DynamodbPlanVault6847869F",
+                  "BackupVaultName",
+                ],
+              },
+            },
+            Object {
+              "Lifecycle": Object {
+                "DeleteAfterDays": 90,
+              },
+              "RuleName": "Weekly",
+              "ScheduleExpression": "cron(0 5 ? * SAT *)",
+              "TargetBackupVault": Object {
+                "Fn::GetAtt": Array [
+                  "DynamodbPlanVault6847869F",
+                  "BackupVaultName",
+                ],
+              },
+            },
+            Object {
+              "Lifecycle": Object {
+                "DeleteAfterDays": 1825,
+                "MoveToColdStorageAfterDays": 90,
+              },
+              "RuleName": "Monthly5Year",
+              "ScheduleExpression": "cron(0 5 1 * ? *)",
+              "TargetBackupVault": Object {
+                "Fn::GetAtt": Array [
+                  "DynamodbPlanVault6847869F",
+                  "BackupVaultName",
+                ],
+              },
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Backup::BackupPlan",
+    },
+    "DynamodbPlanSelection09103638": Object {
+      "Properties": Object {
+        "BackupPlanId": Object {
+          "Fn::GetAtt": Array [
+            "DynamodbPlan329A6CBF",
+            "BackupPlanId",
+          ],
+        },
+        "BackupSelection": Object {
+          "IamRoleArn": Object {
+            "Fn::GetAtt": Array [
+              "DynamodbPlanSelectionRole973F0954",
+              "Arn",
+            ],
+          },
+          "Resources": Array [
+            Object {
+              "Fn::GetAtt": Array [
+                "ContestTableCF479330",
+                "Arn",
+              ],
+            },
+          ],
+          "SelectionName": "Selection",
+        },
+      },
+      "Type": "AWS::Backup::BackupSelection",
+    },
+    "DynamodbPlanSelectionRole973F0954": Object {
+      "Properties": Object {
+        "AssumeRolePolicyDocument": Object {
+          "Statement": Array [
+            Object {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": Object {
+                "Service": "backup.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": Array [
+          Object {
+            "Fn::Join": Array [
+              "",
+              Array [
+                "arn:",
+                Object {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "DynamodbPlanVault6847869F": Object {
+      "DeletionPolicy": "Retain",
+      "Properties": Object {
+        "BackupVaultName": "testDynamodbPlanVault7182E339",
+      },
+      "Type": "AWS::Backup::BackupVault",
+      "UpdateReplacePolicy": "Retain",
     },
     "authorization66B327D8": Object {
       "DependsOn": Array [
