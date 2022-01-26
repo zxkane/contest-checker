@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { Logger } from '@aws-lambda-powertools/logger';
-import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 
 const logger = new Logger({
@@ -23,7 +23,7 @@ const client = new DynamoDBClient({
   region: process.env.AWS_REGION,
 });
 
-const decode = (str: string):string => Buffer.from(str, 'base64').toString('binary');
+const decode = (str: string):string => Buffer.from(str, 'base64').toString('utf-8');
 const PREFIX = 'event-';
 const PASS = 'pass';
 const FAIL = 'fail';
@@ -39,6 +39,7 @@ const AWARD = fs.readFileSync('./award.txt', 'utf8');
     "pk": "20220101-630794479242", # partition key -- (<eventid>-<account>)
     "CS": "pass", # ContestStatus
     "AC": "09870" # AwardCode
+    "ATS": 1 # the total attempts of submission
   }
   {
     "pk": "event-20220101", # partition key -- (event-<eventid>)
@@ -101,44 +102,46 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
             awardCode = contestResp.Item.AC.S!;
           }
 
-          if (!contestRt) {
+          if (!contestRt) { // not passed and awarded
             // TODO check the contest result
             contestRt = FAIL;
             contestRt = PASS;
 
-            if (contestRt === PASS) {
+            if (contestRt == PASS) {
               const awardsInStock = theEvent.Awards?.SS;
               if (awardsInStock && awardsInStock.length > 0) {
                 awardCode = awardsInStock[Math.floor(Math.random() * awardsInStock.length)];
-                var updateExpression = 'Set CS = :status, UT = :time, N = :name, CR = :rt';
-                const expressionAttributeValues: {[k: string]: AttributeValue} = {
-                  ':status': {
-                    S: contestRt,
-                  },
-                  ':time': {
-                    N: new Date().getTime().toString(),
-                  },
-                  ':name': {
-                    S: event.nickname,
-                  },
-                  ':rt': {
-                    S: event.result,
-                  },
+              }
+              else
+                contestRt = OUT_OF_STOCK;
+            }
+            var updateExpression = 'ADD ATS :n SET CS = :status, UT = :time, N = :name, CR = :rt';
+            const expressionAttributeValues: {[k: string]: AttributeValue} = {
+              ':status': {
+                S: contestRt,
+              },
+              ':time': {
+                N: new Date().getTime().toString(),
+              },
+              ':name': {
+                S: event.nickname,
+              },
+              ':rt': {
+                S: event.result,
+              },
+              ':n': {
+                N: '1',
+              },
+            };            
+            switch (contestRt) {
+              case PASS:
+                updateExpression += ', AC = :award';
+                expressionAttributeValues[':award'] = {
+                  S: awardCode!,
                 };
-                if (awardCode) {
-                  updateExpression += ', AC = :award';
-                  const value: AttributeValue = {
-                    S: awardCode,
-                  };
-                  const key: string = ':award';
-                  expressionAttributeValues[`${key}`] = value;
-                }
-                if (contestResp.Item) {
-                  const key: string = ':fail';
-                  expressionAttributeValues[key] = {
-                    S: FAIL,
-                  };
-                }
+                expressionAttributeValues[':pass'] = {
+                  S: PASS,
+                };
                 const recordContestResult = {
                   TableName: process.env.TABLE,
                   Key: {
@@ -148,7 +151,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   },
                   UpdateExpression: updateExpression,
                   ExpressionAttributeValues: expressionAttributeValues,
-                  ConditionExpression: contestResp.Item ? 'CS = :fail' : 'attribute_not_exists(CS)',
+                  ConditionExpression: 'NOT CS = :pass or attribute_not_exists(CS)',
                   ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
                 };
 
@@ -164,10 +167,10 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   UpdateExpression: 'DELETE Awards :a',
                   ExpressionAttributeValues: {
                     ':a': {
-                      SS: [awardCode],
+                      SS: [awardCode!],
                     },
                     ':b': {
-                      S: awardCode,
+                      S: awardCode!,
                     },
                   },
                   ConditionExpression: 'contains(Awards, :b)',
@@ -190,12 +193,30 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 logger.debug(`Recorded the contest result. eventId: ${event.eventId}, 
                   account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, 
                   result: ${event.result}, totalConsumedCapability: ${recResp.ConsumedCapacity!.map(c => c.WriteCapacityUnits!).reduce((acc, value) => acc + value), 0}`);
-              } else {
-                contestRt = OUT_OF_STOCK;
-                logger.warn(`The contest award is out of stock. eventId: ${event.eventId}, 
-                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${event.result}`);
+                break;
+              case OUT_OF_STOCK:
+              case FAIL:
+                expressionAttributeValues[':pass'] = {
+                  S: PASS,
+                };
+              
+                const recordNonAwarded = await client.send(new UpdateItemCommand({
+                  TableName: process.env.TABLE,
+                  Key: {
+                    pk: {
+                      S: `${event.eventId}-${para.requestContext.accountId}`,
+                    },
+                  },
+                  UpdateExpression: updateExpression,
+                  ExpressionAttributeValues: expressionAttributeValues,
+                  ConditionExpression: 'attribute_not_exists(CS) OR NOT CS = :pass',
+                  ReturnValues: 'ALL_NEW',
+                  ReturnConsumedCapacity: 'TOTAL',
+                }));
+                logger.warn(`The contest award is ${contestRt} and recorded the request. eventId: ${event.eventId}, 
+                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${event.result},
+                  consumedCapacity: ${recordNonAwarded.ConsumedCapacity?.CapacityUnits}`);
               }
-            }
           }
 
           switch (contestRt) {
