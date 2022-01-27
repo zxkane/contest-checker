@@ -1,6 +1,5 @@
 import * as path from 'path';
 import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
-import { RestApi, MethodLoggingLevel, LambdaIntegration, JsonSchemaType } from 'aws-cdk-lib/aws-apigateway';
 import { BackupPlan, BackupResource } from 'aws-cdk-lib/aws-backup';
 import { Table, AttributeType, TableEncryption, BillingMode } from 'aws-cdk-lib/aws-dynamodb';
 import { ServicePrincipal } from 'aws-cdk-lib/aws-iam';
@@ -62,56 +61,6 @@ export class ContestCheckerStack extends Stack {
     contestTable.grantReadWriteData(checkerFunc);
     checkerFunc.addPermission('api-gateway', {
       principal: new ServicePrincipal('apigateway.amazonaws.com'),
-    });
-
-    const authorizeFunc = new NodejsFunction(this, 'authorization', {
-      entry: path.join(__dirname, './lambda.d/authorization/index.ts'),
-      handler: 'handler',
-      architecture: Architecture.ARM_64,
-      timeout: Duration.seconds(60),
-      memorySize: 128,
-      runtime: Runtime.NODEJS_14_X,
-      tracing: Tracing.ACTIVE,
-      environment: {
-        TABLE: contestTable.tableName,
-        CHECKER_FUNC_ARN: checkerFunc.functionArn,
-      },
-    });
-    contestTable.grantReadWriteData(authorizeFunc);
-    const api = new RestApi(this, 'authorize-api', {
-      deployOptions: {
-        stageName: 'v1',
-        loggingLevel: MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
-      },
-    });
-
-    const authorRequestModel = api.addModel('AuthorizationRequestModel', {
-      schema: {
-        type: JsonSchemaType.OBJECT,
-        properties: {
-          account: {
-            type: JsonSchemaType.STRING,
-          },
-          eventId: {
-            type: JsonSchemaType.STRING,
-          },
-          nickname: {
-            type: JsonSchemaType.STRING,
-          },
-        },
-        required: ['account', 'eventId', 'nickname'],
-      },
-    });
-
-    const authorize = api.root.addResource('authorize');
-    authorize.addMethod('POST', new LambdaIntegration(authorizeFunc), {
-      requestModels: {
-        'application/json': authorRequestModel,
-      },
-      requestValidatorOptions: {
-        validateRequestBody: true,
-      },
     });
 
     new CfnOutput(this, 'CheckFuncArn', {
