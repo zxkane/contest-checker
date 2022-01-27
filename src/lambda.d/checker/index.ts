@@ -111,9 +111,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               const awardsInStock = theEvent.Awards?.SS;
               if (awardsInStock && awardsInStock.length > 0) {
                 awardCode = awardsInStock[Math.floor(Math.random() * awardsInStock.length)];
-              }
-              else
-                contestRt = OUT_OF_STOCK;
+              } else {contestRt = OUT_OF_STOCK;}
             }
             var updateExpression = 'ADD ATS :n SET CS = :status, UT = :time, N = :name, CR = :rt';
             const expressionAttributeValues: {[k: string]: AttributeValue} = {
@@ -132,7 +130,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               ':n': {
                 N: '1',
               },
-            };            
+            };
             switch (contestRt) {
               case PASS:
                 updateExpression += ', AC = :award';
@@ -199,7 +197,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 expressionAttributeValues[':pass'] = {
                   S: PASS,
                 };
-              
+
                 const recordNonAwarded = await client.send(new UpdateItemCommand({
                   TableName: process.env.TABLE,
                   Key: {
@@ -216,7 +214,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 logger.warn(`The contest award is ${contestRt} and recorded the request. eventId: ${event.eventId}, 
                   account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${event.result},
                   consumedCapacity: ${recordNonAwarded.ConsumedCapacity?.CapacityUnits}`);
-              }
+            }
           }
 
           switch (contestRt) {
