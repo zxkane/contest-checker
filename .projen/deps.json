@@ -91,7 +91,17 @@
       "type": "runtime"
     },
     {
+      "name": "@aws-sdk/client-lambda",
+      "version": "^3.30.0",
+      "type": "runtime"
+    },
+    {
       "name": "@aws-sdk/client-sns",
+      "version": "^3.30.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-sts",
       "version": "^3.30.0",
       "type": "runtime"
     },

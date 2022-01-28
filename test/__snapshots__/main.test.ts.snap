@@ -189,7 +189,7 @@ Object {
           "S3Bucket": Object {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "109f17bb6693a3588fd096ce2b2039bb4c53d7d0e1d1d5926374d263daf0d31b.zip",
+          "S3Key": "1fd1529dbdc90f999a9e5953e8305d304b30e87675a91a2f5d7c7c82362c2ed9.zip",
         },
         "Environment": Object {
           "Variables": Object {
@@ -255,6 +255,11 @@ Object {
                   "Ref": "AWS::NoValue",
                 },
               ],
+            },
+            Object {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": "*",
             },
           ],
           "Version": "2012-10-17",
@@ -325,7 +330,7 @@ Object {
           "S3Bucket": Object {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "2c894f98c7f8e0346135ecbaa18953c79ea5cf276dd45e55125eaf2ddfa9c5f0.zip",
+          "S3Key": "64e73224e0d99e5aee9bf63f2cbb1631ae6b1fcb34e9a307a9cc92c0d6823b86.zip",
         },
         "Environment": Object {
           "Variables": Object {

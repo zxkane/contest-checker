@@ -1,6 +1,9 @@
 import * as fs from 'fs';
+import { TextEncoder, TextDecoder } from 'util';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 
 const logger = new Logger({
@@ -19,9 +22,11 @@ export interface ContestCheckResult {
   award: any;
 }
 
-const client = new DynamoDBClient({
+const config = {
   region: process.env.AWS_REGION,
-});
+};
+const ddb = new DynamoDBClient(config);
+const sts = new STSClient(config);
 
 const decode = (str: string):string => Buffer.from(str, 'base64').toString('utf-8');
 const PREFIX = 'event-';
@@ -52,7 +57,9 @@ const AWARD = fs.readFileSync('./award.txt', 'utf8');
       "SDLFJLSKFJ",
       "SLKJFD02"
     ],
-    "ExpiredTimeInMill": 1643644799000 # expired time in millionseconds
+    "ExpiredTimeInMill": 1643644799000, # expired time in millionseconds
+    "CheckerARN": "arn:aws:lambda:ap-southeast-1:<account-id>:function:<function-name>", # Lambda arn of checker
+    "CheckerRole": "arn:aws:iam::<account-id>:role/role-name", # IAM role to invoke Lambda checker
   }
  */
 export const handler: ContestCheckEventHandler = async (para, _context)=> {
@@ -80,13 +87,13 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
           },
         },
       });
-      const response = await client.send(command);
+      const response = await ddb.send(command);
       const theEvent = response.Item;
       if (theEvent) {
         const expiredTime = theEvent.ExpiredTimeInMill.N ?? -1;
         const currentTime = new Date().getTime();
         if (currentTime <= expiredTime) {
-          const contestResp = await client.send(new GetItemCommand({
+          const contestResp = await ddb.send(new GetItemCommand({
             TableName: process.env.TABLE,
             Key: {
               pk: {
@@ -95,6 +102,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
             },
             ProjectionExpression: 'CS, AC',
           }));
+          logger.debug(`get existing submission ${JSON.stringify(contestResp.Item)}`);
           var contestRt: string | undefined;
           var awardCode: string | undefined;
           if (contestResp.Item && contestResp.Item.CS.S == PASS) {
@@ -103,9 +111,48 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
           }
 
           if (!contestRt) { // not passed and awarded
-            // TODO check the contest result
             contestRt = FAIL;
-            contestRt = PASS;
+
+            const checkerArn = theEvent.CheckerARN.S;
+            const checkerRole = theEvent.CheckerRole.S;
+            if (checkerArn) {
+              var newConfig: {} = {
+                ...config,
+              };
+              if (checkerRole) {
+                const assumeCmd = new AssumeRoleCommand({
+                  RoleArn: checkerRole,
+                  RoleSessionName: _context.awsRequestId,
+                  ExternalId: 'contest',
+                });
+                const token = await sts.send(assumeCmd);
+                newConfig = {
+                  ...config,
+                  credentials: {
+                    accessKeyId: token.Credentials?.AccessKeyId,
+                    secretAccessKey: token.Credentials?.SecretAccessKey,
+                    sessionToken: token.Credentials?.SessionToken,
+                  },
+                };
+              }
+              const lambda = new LambdaClient(newConfig);
+              const checkCmd = new InvokeCommand({
+                FunctionName: checkerArn,
+                InvocationType: 'RequestResponse',
+                Payload: new TextEncoder().encode(JSON.stringify({
+                  content: event.result,
+                })),
+              });
+              const checkResp = await lambda.send(checkCmd);
+              if (checkResp.StatusCode == 200 && !checkResp.FunctionError) {
+                const resp = new TextDecoder('utf-8').decode(checkResp.Payload);
+                logger.debug(`got checker result ${resp}`);
+                contestRt = (JSON.parse(resp) as ContestCheckResult).result;
+              } else {
+                logger.error(`the checker failed to check content ${event.result} with error ${checkResp.FunctionError}.`);
+                throw new Error('checker failed');
+              }
+            }
 
             if (contestRt == PASS) {
               const awardsInStock = theEvent.Awards?.SS;
@@ -186,7 +233,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   ReturnConsumedCapacity: 'TOTAL',
                   ClientRequestToken: para.requestContext.requestId,
                 });
-                const recResp = await client.send(recTranscation);
+                const recResp = await ddb.send(recTranscation);
 
                 logger.debug(`Recorded the contest result. eventId: ${event.eventId}, 
                   account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, 
@@ -198,7 +245,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   S: PASS,
                 };
 
-                const recordNonAwarded = await client.send(new UpdateItemCommand({
+                const recordNonAwarded = await ddb.send(new UpdateItemCommand({
                   TableName: process.env.TABLE,
                   Key: {
                     pk: {
@@ -219,13 +266,13 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
 
           switch (contestRt) {
             case PASS:
-              body = `${AWARD}\n\t感谢您的参与，恭喜获得星巴克电子兑换码: ${awardCode}`;
+              body = `${AWARD}\n\t您好棒！AI 被您的祝福打败了。恭喜获得星巴克电子兑换码: ${awardCode}`;
               break;
             case FAIL:
-              body = `${AWARD}\n\t很抱歉，您没有获得奖励。您可以再次提交尝试。`;
+              body = `${AWARD}\n\t很遗憾，AI 觉得您的祝福不够好。您可以再次提交尝试。`;
               break;
             case OUT_OF_STOCK:
-              body = `${AWARD}\n\t很抱歉，我们的奖品已兑完，感谢您的参与。`;
+              body = `${AWARD}\n\t感谢您的参与。我们的奖品在补货中，可稍后再试。`;
               break;
           }
         } else {

@@ -2,7 +2,7 @@ import * as path from 'path';
 import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
 import { BackupPlan, BackupResource } from 'aws-cdk-lib/aws-backup';
 import { Table, AttributeType, TableEncryption, BillingMode, StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
-import { ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { ServicePrincipal, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Tracing, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource, SqsDlq } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -92,6 +92,12 @@ export class ContestCheckerStack extends Stack {
     checkerFunc.addPermission('api-gateway', {
       principal: new ServicePrincipal('apigateway.amazonaws.com'),
     });
+    checkerFunc.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'sts:AssumeRole',
+      ],
+      resources: ['*'],
+    }));
 
     new CfnOutput(this, 'CheckFuncArn', {
       value: checkerFunc.functionArn,

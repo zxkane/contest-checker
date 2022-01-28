@@ -3,6 +3,8 @@ const { awscdk } = require('projen');
 const awsSDKDeps = [
   '@aws-sdk/client-dynamodb',
   '@aws-sdk/client-sns',
+  '@aws-sdk/client-lambda',
+  '@aws-sdk/client-sts',
 ].map(dep => `${dep}@^3.30.0`);
 
 const project = new awscdk.AwsCdkTypeScriptApp({
