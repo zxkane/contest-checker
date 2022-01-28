@@ -46,6 +46,9 @@ Object {
         "SSESpecification": Object {
           "SSEEnabled": true,
         },
+        "StreamSpecification": Object {
+          "StreamViewType": "NEW_IMAGE",
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -167,6 +170,12 @@ Object {
       "Type": "AWS::Backup::BackupVault",
       "UpdateReplacePolicy": "Retain",
     },
+    "SubmissionNotifyTopic31317A4E": Object {
+      "Properties": Object {
+        "DisplayName": "Contest Sbumission Notification subscription topic",
+      },
+      "Type": "AWS::SNS::Topic",
+    },
     "checker31A6B3BF": Object {
       "DependsOn": Array [
         "checkerServiceRoleDefaultPolicyF32E024F",
@@ -180,7 +189,7 @@ Object {
           "S3Bucket": Object {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "78bcbde7392b0fade254ba4e39aed26049ebf0b1eb305c0dfd8f4d30ac3b5f13.zip",
+          "S3Key": "109f17bb6693a3588fd096ce2b2039bb4c53d7d0e1d1d5926374d263daf0d31b.zip",
         },
         "Environment": Object {
           "Variables": Object {
@@ -302,6 +311,173 @@ Object {
         "Principal": "apigateway.amazonaws.com",
       },
       "Type": "AWS::Lambda::Permission",
+    },
+    "ddbstreamprocessingCB13F19C": Object {
+      "DependsOn": Array [
+        "ddbstreamprocessingServiceRoleDefaultPolicyA8E36B58",
+        "ddbstreamprocessingServiceRoleDE732908",
+      ],
+      "Properties": Object {
+        "Architectures": Array [
+          "arm64",
+        ],
+        "Code": Object {
+          "S3Bucket": Object {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "2c894f98c7f8e0346135ecbaa18953c79ea5cf276dd45e55125eaf2ddfa9c5f0.zip",
+        },
+        "Environment": Object {
+          "Variables": Object {
+            "AWS_NODEJS_CONNECTION_REUSE_ENABLED": "1",
+            "TOPIC_ARN": Object {
+              "Ref": "SubmissionNotifyTopic31317A4E",
+            },
+          },
+        },
+        "Handler": "index.handler",
+        "MemorySize": 128,
+        "Role": Object {
+          "Fn::GetAtt": Array [
+            "ddbstreamprocessingServiceRoleDE732908",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs14.x",
+        "Timeout": 60,
+        "TracingConfig": Object {
+          "Mode": "Active",
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "ddbstreamprocessingDynamoDBEventSourcetestContestTable1191BC9C6EF2B7B9": Object {
+      "Properties": Object {
+        "BatchSize": 5,
+        "BisectBatchOnFunctionError": true,
+        "DestinationConfig": Object {
+          "OnFailure": Object {
+            "Destination": Object {
+              "Fn::GetAtt": Array [
+                "deadLetterQueue3F848E28",
+                "Arn",
+              ],
+            },
+          },
+        },
+        "EventSourceArn": Object {
+          "Fn::GetAtt": Array [
+            "ContestTableCF479330",
+            "StreamArn",
+          ],
+        },
+        "FunctionName": Object {
+          "Ref": "ddbstreamprocessingCB13F19C",
+        },
+        "MaximumRetryAttempts": 10,
+        "StartingPosition": "TRIM_HORIZON",
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "ddbstreamprocessingServiceRoleDE732908": Object {
+      "Properties": Object {
+        "AssumeRolePolicyDocument": Object {
+          "Statement": Array [
+            Object {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": Object {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": Array [
+          Object {
+            "Fn::Join": Array [
+              "",
+              Array [
+                "arn:",
+                Object {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "ddbstreamprocessingServiceRoleDefaultPolicyA8E36B58": Object {
+      "Properties": Object {
+        "PolicyDocument": Object {
+          "Statement": Array [
+            Object {
+              "Action": Array [
+                "xray:PutTraceSegments",
+                "xray:PutTelemetryRecords",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            Object {
+              "Action": "sns:Publish",
+              "Effect": "Allow",
+              "Resource": Object {
+                "Ref": "SubmissionNotifyTopic31317A4E",
+              },
+            },
+            Object {
+              "Action": Array [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Effect": "Allow",
+              "Resource": Object {
+                "Fn::GetAtt": Array [
+                  "deadLetterQueue3F848E28",
+                  "Arn",
+                ],
+              },
+            },
+            Object {
+              "Action": "dynamodb:ListStreams",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            Object {
+              "Action": Array [
+                "dynamodb:DescribeStream",
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
+              ],
+              "Effect": "Allow",
+              "Resource": Object {
+                "Fn::GetAtt": Array [
+                  "ContestTableCF479330",
+                  "StreamArn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "ddbstreamprocessingServiceRoleDefaultPolicyA8E36B58",
+        "Roles": Array [
+          Object {
+            "Ref": "ddbstreamprocessingServiceRoleDE732908",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "deadLetterQueue3F848E28": Object {
+      "DeletionPolicy": "Delete",
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
     },
   },
   "Rules": Object {
