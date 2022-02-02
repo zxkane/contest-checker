@@ -33,6 +33,7 @@ const PREFIX = 'event-';
 const PASS = 'pass';
 const FAIL = 'fail';
 const OUT_OF_STOCK = 'out_of_stock';
+const BANNED = 'banned';
 const AWARD = fs.readFileSync('./award.txt', 'utf8');
 
 /**
@@ -105,9 +106,16 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
           logger.debug(`get existing submission ${JSON.stringify(contestResp.Item)}`);
           var contestRt: string | undefined;
           var awardCode: string | undefined;
-          if (contestResp.Item && contestResp.Item.CS.S == PASS) {
-            contestRt = PASS;
-            awardCode = contestResp.Item.AC.S!;
+          if (contestResp.Item) {
+            switch (contestResp.Item.CS.S) {
+              case PASS:
+                contestRt = PASS;
+                awardCode = contestResp.Item.AC.S!;
+                break;
+              case BANNED:
+                contestRt = BANNED;
+                break;
+            }
           }
 
           if (!contestRt) { // not passed and awarded
@@ -269,10 +277,11 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               body = `${AWARD}\n\t您好棒！AI 被您的祝福打败了。恭喜获得星巴克电子兑换码: ${awardCode}`;
               break;
             case FAIL:
+            case BANNED:
               body = `${AWARD}\n\t很遗憾，AI 觉得您的祝福不够好。您可以再次提交尝试。`;
               break;
             case OUT_OF_STOCK:
-              body = `${AWARD}\n\t感谢您的参与。我们的奖品在补货中，可稍后再试。`;
+              body = `${AWARD}\n\t感谢您的参与。我们的奖品目前缺货中。奖品每日将不定期补货。`;
               break;
           }
         } else {
