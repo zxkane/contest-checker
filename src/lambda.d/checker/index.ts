@@ -39,7 +39,7 @@ const AWARD = fs.readFileSync('./award.txt', 'utf8');
 /**
  * Table schema,
   {
-    "N": "aaa", # nickname
+    "NS": ["aaa", "bbb"], # nickname set
     "UT": 1642828946940, # UpdatedTime
     "CR": "111sss", # ContestResult
     "pk": "20220101-630794479242", # partition key -- (<eventid>-<account>)
@@ -168,7 +168,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 awardCode = awardsInStock[Math.floor(Math.random() * awardsInStock.length)];
               } else {contestRt = OUT_OF_STOCK;}
             }
-            var updateExpression = 'ADD ATS :n SET CS = :status, UT = :time, N = :name, CR = :rt';
+            var updateExpression = 'ADD ATS :n, NS :name SET CS = :status, UT = :time, CR = :rt';
             const expressionAttributeValues: {[k: string]: AttributeValue} = {
               ':status': {
                 S: contestRt,
@@ -177,7 +177,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 N: new Date().getTime().toString(),
               },
               ':name': {
-                S: event.nickname,
+                SS: [event.nickname],
               },
               ':rt': {
                 S: event.result,
