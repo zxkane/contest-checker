@@ -121,8 +121,8 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
           if (!contestRt) { // not passed and awarded
             contestRt = FAIL;
 
-            const checkerArn = theEvent.CheckerARN.S;
-            const checkerRole = theEvent.CheckerRole.S;
+            const checkerArn = theEvent.CheckerARN?.S;
+            const checkerRole = theEvent.CheckerRole?.S;
             if (checkerArn) {
               var newConfig: {} = {
                 ...config,
