@@ -5,6 +5,7 @@ import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsComma
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { APIGatewayProxyHandler } from 'aws-lambda';
+const parser = require('lambda-multipart-parser');
 
 const logger = new Logger({
   logLevel: 'DEBUG',
@@ -15,6 +16,24 @@ export interface ContestCheckEvent {
   eventId: string;
   nickname: string;
   result: string;
+}
+
+export interface ContestCheckEvent2 {
+  eventId: string;
+  nickname: string;
+  files: {
+    content: Buffer,
+    filename: string,
+    contentType: string,
+    encoding: string,
+    fieldname: string,
+  }[];  
+}
+
+export interface ContestCheckRequest {
+  eventId: string;
+  nickname: string;
+  content: string;
 }
 
 export interface ContestCheckResult {
@@ -70,21 +89,46 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
   var body: string;
 
   if (para.body) {
-    const requestBody = para.isBase64Encoded ? decode(para.body) : para.body;
-    var event;
-    try {
-      event = JSON.parse(requestBody) as ContestCheckEvent;
-    } catch (e) {
-      statusCode = 400;
-      body = 'Invalid request. eventId & nickname & result are required';
-      logger.warn(`Given request is invalid. account: ${para.requestContext.accountId}`, e);
+    var request;
+    if (para.headers['Content-Type']?.startsWith('multipart/form-data;')) {
+      try {
+        const event = await parser.parse(para) as ContestCheckEvent2;
+        
+        
+        request = {
+          eventId: event.eventId,
+          nickname: event.nickname,
+          content: event.files[0].content.toString('utf-8'),
+        };
+        
+        logger.debug(`Request form is ${JSON.stringify(request, null, 2)}`);
+      } catch (e) {
+        statusCode = 400;
+        body = 'Invalid request. eventId & nickname & file payload are required';
+        logger.warn(`Given request is invalid. account: ${para.requestContext.accountId}`, e);
+      }
+    } else {
+      try {
+        const requestBody = para.isBase64Encoded ? decode(para.body) : para.body;
+        const event = JSON.parse(requestBody) as ContestCheckEvent;
+        request = {
+          eventId: event.eventId,
+          nickname: event.nickname,
+          content: event.result,
+        };
+      } catch (e) {
+        statusCode = 400;
+        body = 'Invalid request. eventId & nickname & result are required';
+        logger.warn(`Given request is invalid. account: ${para.requestContext.accountId}`, e);
+      }
     }
-    if (event) {
+    
+    if (request) {
       const command = new GetItemCommand({
         TableName: process.env.TABLE,
         Key: {
           pk: {
-            S: `${PREFIX}${event.eventId}`,
+            S: `${PREFIX}${request.eventId}`,
           },
         },
       });
@@ -98,7 +142,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
             TableName: process.env.TABLE,
             Key: {
               pk: {
-                S: `${event.eventId}-${para.requestContext.accountId}`,
+                S: `${request.eventId}-${para.requestContext.accountId}`,
               },
             },
             ProjectionExpression: 'CS, AC',
@@ -148,7 +192,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 FunctionName: checkerArn,
                 InvocationType: 'RequestResponse',
                 Payload: new TextEncoder().encode(JSON.stringify({
-                  content: event.result,
+                  content: request.content,
                 })),
               });
               const checkResp = await lambda.send(checkCmd);
@@ -157,7 +201,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 logger.debug(`got checker result ${resp}`);
                 contestRt = (JSON.parse(resp) as ContestCheckResult).result;
               } else {
-                logger.error(`the checker failed to check content ${event.result} with error ${checkResp.FunctionError}.`);
+                logger.error(`the checker failed to check content ${request.content} with error ${checkResp.FunctionError}.`);
                 throw new Error('checker failed');
               }
             }
@@ -177,10 +221,10 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 N: new Date().getTime().toString(),
               },
               ':name': {
-                SS: [event.nickname],
+                SS: [request.nickname],
               },
               ':rt': {
-                S: event.result,
+                S: request.content,
               },
               ':n': {
                 N: '1',
@@ -199,7 +243,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   TableName: process.env.TABLE,
                   Key: {
                     pk: {
-                      S: `${event.eventId}-${para.requestContext.accountId}`,
+                      S: `${request.eventId}-${para.requestContext.accountId}`,
                     },
                   },
                   UpdateExpression: updateExpression,
@@ -243,9 +287,9 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 });
                 const recResp = await ddb.send(recTranscation);
 
-                logger.debug(`Recorded the contest result. eventId: ${event.eventId}, 
+                logger.debug(`Recorded the contest result. eventId: ${request.eventId}, 
                   account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, 
-                  result: ${event.result}, totalConsumedCapability: ${recResp.ConsumedCapacity!.map(c => c.WriteCapacityUnits!).reduce((acc, value) => acc + value), 0}`);
+                  result: ${request.content}, totalConsumedCapability: ${recResp.ConsumedCapacity!.map(c => c.WriteCapacityUnits!).reduce((acc, value) => acc + value), 0}`);
                 break;
               case OUT_OF_STOCK:
               case FAIL:
@@ -257,7 +301,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   TableName: process.env.TABLE,
                   Key: {
                     pk: {
-                      S: `${event.eventId}-${para.requestContext.accountId}`,
+                      S: `${request.eventId}-${para.requestContext.accountId}`,
                     },
                   },
                   UpdateExpression: updateExpression,
@@ -266,8 +310,8 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   ReturnValues: 'ALL_NEW',
                   ReturnConsumedCapacity: 'TOTAL',
                 }));
-                logger.warn(`The contest award is ${contestRt} and recorded the request. eventId: ${event.eventId}, 
-                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${event.result},
+                logger.warn(`The contest award is ${contestRt} and recorded the request. eventId: ${request.eventId}, 
+                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${request.content},
                   consumedCapacity: ${recordNonAwarded.ConsumedCapacity?.CapacityUnits}`);
             }
           }
@@ -286,13 +330,13 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
           }
         } else {
           statusCode = 404;
-          body = `the given event ${event.eventId} is expired.`;
-          logger.info(`Given event is expired. eventId: ${event.eventId}, account: ${para.requestContext.accountId}`);
+          body = `the given event ${request.eventId} is expired.`;
+          logger.info(`Given event is expired. eventId: ${request.eventId}, account: ${para.requestContext.accountId}`);
         }
       } else {
         statusCode = 404;
-        body = `the given event ${event.eventId} is not found.`;
-        logger.info(`Given event is not found. eventId: ${event.eventId}, account: ${para.requestContext.accountId}`);
+        body = `the given event ${request.eventId} is not found.`;
+        logger.info(`Given event is not found. eventId: ${request.eventId}, account: ${para.requestContext.accountId}`);
       }
     }
   } else {

@@ -15,10 +15,12 @@ const project = new awscdk.AwsCdkTypeScriptApp({
   deps: [
     '@types/aws-lambda@^8.10.89',
     '@aws-lambda-powertools/logger@^0.4.0',
+    'lambda-multipart-parser',
     ...awsSDKDeps,
   ], /* Runtime dependencies of this module. */
   // description: undefined,  /* The description is just a string that helps people understand the purpose of the package. */
   // devDeps: [],             /* Build dependencies for this module. */
   // packageName: undefined,  /* The "name" in package.json. */
+  typescriptVersion: '~4.6.0',
 });
 project.synth();
