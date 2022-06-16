@@ -1,5 +1,4 @@
-import * as fs from 'fs';
-import { TextEncoder, TextDecoder } from 'util';
+/* eslint @typescript-eslint/no-require-imports: "off" */
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
@@ -22,12 +21,12 @@ export interface ContestCheckEvent2 {
   eventId: string;
   nickname: string;
   files: {
-    content: Buffer,
-    filename: string,
-    contentType: string,
-    encoding: string,
-    fieldname: string,
-  }[];  
+    content: Buffer;
+    filename: string;
+    contentType: string;
+    encoding: string;
+    fieldname: string;
+  }[];
 }
 
 export interface ContestCheckRequest {
@@ -53,7 +52,6 @@ const PASS = 'pass';
 const FAIL = 'fail';
 const OUT_OF_STOCK = 'out_of_stock';
 const BANNED = 'banned';
-const AWARD = fs.readFileSync('./award.txt', 'utf8');
 
 /**
  * Table schema,
@@ -80,6 +78,7 @@ const AWARD = fs.readFileSync('./award.txt', 'utf8');
     "ExpiredTimeInMill": 1643644799000, # expired time in millionseconds
     "CheckerARN": "arn:aws:lambda:ap-southeast-1:<account-id>:function:<function-name>", # Lambda arn of checker
     "CheckerRole": "arn:aws:iam::<account-id>:role/role-name", # IAM role to invoke Lambda checker
+    "IsLogResult": false, # indicate if submission to record
   }
  */
 export const handler: ContestCheckEventHandler = async (para, _context)=> {
@@ -93,14 +92,14 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
     if (para.headers['Content-Type']?.startsWith('multipart/form-data;')) {
       try {
         const event = await parser.parse(para) as ContestCheckEvent2;
-        
-        
+
+
         request = {
           eventId: event.eventId,
           nickname: event.nickname,
           content: event.files[0].content.toString('utf-8'),
         };
-        
+
         logger.debug(`Request form is ${JSON.stringify(request, null, 2)}`);
       } catch (e) {
         statusCode = 400;
@@ -122,7 +121,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
         logger.warn(`Given request is invalid. account: ${para.requestContext.accountId}`, e);
       }
     }
-    
+
     if (request) {
       const command = new GetItemCommand({
         TableName: process.env.TABLE,
@@ -212,7 +211,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 awardCode = awardsInStock[Math.floor(Math.random() * awardsInStock.length)];
               } else {contestRt = OUT_OF_STOCK;}
             }
-            var updateExpression = 'ADD ATS :n, NS :name SET CS = :status, UT = :time, CR = :rt';
+            var updateExpression = 'ADD ATS :n, NS :name SET CS = :status, UT = :time';
             const expressionAttributeValues: {[k: string]: AttributeValue} = {
               ':status': {
                 S: contestRt,
@@ -223,13 +222,16 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               ':name': {
                 SS: [request.nickname],
               },
-              ':rt': {
-                S: request.content,
-              },
               ':n': {
                 N: '1',
               },
             };
+            if (theEvent.IsLogResult) {
+              updateExpression += ', CR = :rt';
+              expressionAttributeValues[':rt'] = {
+                S: request.content,
+              };
+            }
             switch (contestRt) {
               case PASS:
                 updateExpression += ', AC = :award';
@@ -318,14 +320,14 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
 
           switch (contestRt) {
             case PASS:
-              body = `${AWARD}\n\t您好棒！AI 被您的祝福打败了。恭喜获得星巴克电子兑换码: ${awardCode}`;
+              body = `\n\t您好棒！AI小助手被您的程序打败了。恭喜获得咖啡电子兑换码: ${awardCode}`;
               break;
             case FAIL:
             case BANNED:
-              body = `${AWARD}\n\t很遗憾，AI 觉得您的祝福不够好。您可以再次提交尝试。`;
+              body = '\n\t很遗憾，AI小助手判定您的程序Bug还有点多。您可以再次提交尝试。';
               break;
             case OUT_OF_STOCK:
-              body = `${AWARD}\n\t感谢您的参与。我们的奖品目前缺货中。奖品每日将不定期补货。`;
+              body = '\n\t感谢您的参与。我们的奖品目前缺货中。奖品每日将不定期补货。';
               break;
           }
         } else {
