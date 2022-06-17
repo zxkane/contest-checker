@@ -1,4 +1,5 @@
 /* eslint @typescript-eslint/no-require-imports: "off" */
+import { TextEncoder, TextDecoder } from 'util';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
