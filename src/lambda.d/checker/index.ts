@@ -6,9 +6,10 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 const parser = require('lambda-multipart-parser');
+import { Zip } from 'zlibt2';
 
 const logger = new Logger({
-  logLevel: 'DEBUG',
+  logLevel: 'INFO',
 });
 export type ContestCheckEventHandler = APIGatewayProxyHandler;
 
@@ -33,7 +34,7 @@ export interface ContestCheckEvent2 {
 export interface ContestCheckRequest {
   eventId: string;
   nickname: string;
-  content: string;
+  content: string | Buffer;
 }
 
 export interface ContestCheckResult {
@@ -53,6 +54,18 @@ const PASS = 'pass';
 const FAIL = 'fail';
 const OUT_OF_STOCK = 'out_of_stock';
 const BANNED = 'banned';
+
+function stringToByteArray(str: string) {
+  var array = new Uint8Array(str.length);
+  var i;
+  var il;
+
+  for (i = 0, il = str.length; i < il; ++i) {
+      array[i] = str.charCodeAt(i) & 0xff;
+  }
+
+  return array;
+}
 
 /**
  * Table schema,
@@ -89,18 +102,22 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
   var body: string;
 
   if (para.body) {
-    var request;
+    var request: ContestCheckRequest | undefined;
     if (para.headers['Content-Type']?.startsWith('multipart/form-data;')) {
       try {
         const event = await parser.parse(para) as ContestCheckEvent2;
-
-
+        
+        const zip = new Zip();
+        zip.addFile(new Uint8Array(event.files[0].content), {
+            filename: stringToByteArray('lambda_function.py'),
+        });
+        const zipcompressed = Buffer.from(zip.compress());
         request = {
           eventId: event.eventId,
           nickname: event.nickname,
-          content: event.files[0].content.toString('utf-8'),
+          content: zipcompressed,
         };
-
+        
         logger.debug(`Request form is ${JSON.stringify(request, null, 2)}`);
       } catch (e) {
         statusCode = 400;
@@ -172,6 +189,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 ...config,
               };
               if (checkerRole) {
+                logger.info(`Assuming role ${checkerRole} and ${checkerArn}`)
                 const assumeCmd = new AssumeRoleCommand({
                   RoleArn: checkerRole,
                   RoleSessionName: _context.awsRequestId,
@@ -191,9 +209,13 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
               const checkCmd = new InvokeCommand({
                 FunctionName: checkerArn,
                 InvocationType: 'RequestResponse',
-                Payload: new TextEncoder().encode(JSON.stringify({
-                  content: request.content,
-                })),
+                Payload: new TextEncoder().encode(
+                    Buffer.isBuffer(request.content) ? 
+                      request.content.toString('base64') :
+                      JSON.stringify({
+                        content: request.content,
+                      })
+                ),
               });
               const checkResp = await lambda.send(checkCmd);
               if (checkResp.StatusCode == 200 && !checkResp.FunctionError) {
@@ -227,10 +249,10 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 N: '1',
               },
             };
-            if (theEvent.IsLogResult) {
+            if (theEvent.IsLogResult?.BOOL) {
               updateExpression += ', CR = :rt';
               expressionAttributeValues[':rt'] = {
-                S: request.content,
+                S: request.content as string,
               };
             }
             switch (contestRt) {
@@ -299,7 +321,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 expressionAttributeValues[':pass'] = {
                   S: PASS,
                 };
-
+                logger.debug(`Updating DB with request ${updateExpression}`);
                 const recordNonAwarded = await ddb.send(new UpdateItemCommand({
                   TableName: process.env.TABLE,
                   Key: {

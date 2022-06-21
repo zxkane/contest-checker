@@ -53,7 +53,8 @@
     "@types/aws-lambda": "^8.10.89",
     "aws-cdk-lib": "^2.1.0",
     "constructs": "^10.0.5",
-    "lambda-multipart-parser": "^1.0.1"
+    "lambda-multipart-parser": "^1.0.1",
+    "zlibt2": "^0.5.2"
   },
   "license": "Apache-2.0",
   "version": "0.0.0",
