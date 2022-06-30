@@ -42,6 +42,16 @@ export interface ContestCheckResult {
   award: any;
 }
 
+export interface ContestCheckResult2 {
+  statusCode: number;
+  body: string;
+}
+
+export interface ScoreInfo {
+  duration: number;
+  score: number;
+}
+
 const config = {
   region: process.env.AWS_REGION,
 };
@@ -189,7 +199,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 ...config,
               };
               if (checkerRole) {
-                logger.info(`Assuming role ${checkerRole} and ${checkerArn}`)
+                logger.debug(`Assuming role ${checkerRole} and ${checkerArn}`)
                 const assumeCmd = new AssumeRoleCommand({
                   RoleArn: checkerRole,
                   RoleSessionName: _context.awsRequestId,
@@ -210,18 +220,44 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 FunctionName: checkerArn,
                 InvocationType: 'RequestResponse',
                 Payload: new TextEncoder().encode(
-                    Buffer.isBuffer(request.content) ? 
-                      request.content.toString('base64') :
+                    Buffer.isBuffer(request.content) ?
+                      JSON.stringify({
+                        body: request.content.toString('base64'),
+                        isBase64Encoded: true,
+                      })
+                      :
                       JSON.stringify({
                         content: request.content,
                       })
                 ),
               });
               const checkResp = await lambda.send(checkCmd);
+              var additionalProps: any | undefined;
               if (checkResp.StatusCode == 200 && !checkResp.FunctionError) {
                 const resp = new TextDecoder('utf-8').decode(checkResp.Payload);
                 logger.debug(`got checker result ${resp}`);
-                contestRt = (JSON.parse(resp) as ContestCheckResult).result;
+                if (Buffer.isBuffer(request.content)) {
+                  const result = (JSON.parse(resp) as ContestCheckResult2);
+                  if (result.statusCode === 200) {
+                    const info: ScoreInfo = (JSON.parse(result.body) as ScoreInfo[]).reduce(function (a: ScoreInfo, b: ScoreInfo){
+                      return {
+                        duration: Number(a.duration) + Number(b.duration),
+                        score: Number(a.score) + Number(b.score),
+                      };
+                    });
+                    additionalProps = {
+                      durationInMS: info.duration,
+                      score: info.score,
+                    };
+                    logger.debug(`Got the score of submission, ${JSON.stringify(additionalProps)}`);
+                    if (additionalProps.score >= 10) 
+                      contestRt = PASS;
+                    else
+                      contestRt = FAIL;
+                  } else
+                    contestRt = FAIL;
+                } else
+                  contestRt = (JSON.parse(resp) as ContestCheckResult).result;
               } else {
                 logger.error(`the checker failed to check content ${request.content} with error ${checkResp.FunctionError}.`);
                 throw new Error('checker failed');
@@ -234,7 +270,6 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 awardCode = awardsInStock[Math.floor(Math.random() * awardsInStock.length)];
               } else {contestRt = OUT_OF_STOCK;}
             }
-            var updateExpression = 'ADD ATS :n, NS :name SET CS = :status, UT = :time';
             const expressionAttributeValues: {[k: string]: AttributeValue} = {
               ':status': {
                 S: contestRt,
@@ -249,6 +284,15 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 N: '1',
               },
             };
+            var updateExpression = 'ADD ATS :n, NS :name SET CS = :status, UT = :time';
+            if (additionalProps) {
+              Object.keys(additionalProps).forEach(function(key){
+                updateExpression += `, ${key}  = :${key}`;
+                expressionAttributeValues[`:${key}`] = {
+                  S: String(additionalProps[key]),
+                };
+              })
+            }            
             if (theEvent.IsLogResult?.BOOL) {
               updateExpression += ', CR = :rt';
               expressionAttributeValues[':rt'] = {
@@ -278,7 +322,6 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 };
 
                 logger.debug(`recordContestResult is ${JSON.stringify(recordContestResult, null, 2)}`);
-
                 const deductionInventory = {
                   TableName: process.env.TABLE,
                   Key: {
@@ -321,7 +364,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                 expressionAttributeValues[':pass'] = {
                   S: PASS,
                 };
-                logger.debug(`Updating DB with request ${updateExpression}`);
+                logger.debug(`Updating DB with request ${updateExpression} and attributes ${JSON.stringify(expressionAttributeValues, null, 2)}`);
                 const recordNonAwarded = await ddb.send(new UpdateItemCommand({
                   TableName: process.env.TABLE,
                   Key: {
@@ -336,7 +379,8 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
                   ReturnConsumedCapacity: 'TOTAL',
                 }));
                 logger.warn(`The contest award is ${contestRt} and recorded the request. eventId: ${request.eventId}, 
-                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, result: ${request.content},
+                  account: ${para.requestContext.accountId}, contestStatus: ${contestRt}, 
+                  result: ${theEvent.IsLogResult?.BOOL ? request.content : ''},
                   consumedCapacity: ${recordNonAwarded.ConsumedCapacity?.CapacityUnits}`);
             }
           }
