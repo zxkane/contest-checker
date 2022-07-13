@@ -3,10 +3,12 @@ import { TextEncoder, TextDecoder } from 'util';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { DynamoDBClient, GetItemCommand, AttributeValue, TransactWriteItemsCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 const parser = require('lambda-multipart-parser');
 import { Zip } from 'zlibt2';
+import { md5 } from 'hash-wasm';
 
 const logger = new Logger({
   logLevel: 'INFO',
@@ -57,6 +59,7 @@ const config = {
 };
 const ddb = new DynamoDBClient(config);
 const sts = new STSClient(config);
+const s3 = new S3Client(config);
 
 const decode = (str: string):string => Buffer.from(str, 'base64').toString('utf-8');
 const PREFIX = 'event-';
@@ -129,6 +132,18 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
         };
         
         logger.debug(`Request form is ${JSON.stringify(request, null, 2)}`);
+        
+        const localTime = new Intl.DateTimeFormat('zh-CN', { 
+          dateStyle: 'long', 
+          timeStyle: 'short',
+          timeZone: 'Asia/Hong_Kong',
+        }).format(new Date());
+        const command = new PutObjectCommand({
+          Bucket: process.env.ASSET_BUCKET,
+          Key: `events/${event.eventId}/${await md5(event.files[0].content)}/${para.requestContext.accountId}-${localTime}.py`,
+          Body: event.files[0].content,
+        });
+        s3.send(command);
       } catch (e) {
         statusCode = 400;
         body = 'Invalid request. eventId & nickname & file payload are required';

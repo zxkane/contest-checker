@@ -5,6 +5,7 @@ const awsSDKDeps = [
   '@aws-sdk/client-sns',
   '@aws-sdk/client-lambda',
   '@aws-sdk/client-sts',
+  '@aws-sdk/client-s3',
 ].map(dep => `${dep}@^3.30.0`);
 
 const project = new awscdk.AwsCdkTypeScriptApp({
@@ -17,6 +18,7 @@ const project = new awscdk.AwsCdkTypeScriptApp({
     '@aws-lambda-powertools/logger@^0.4.0',
     'lambda-multipart-parser',
     'zlibt2',
+    'hash-wasm',
     ...awsSDKDeps,
   ], /* Runtime dependencies of this module. */
   // description: undefined,  /* The description is just a string that helps people understand the purpose of the package. */

@@ -6,6 +6,7 @@ import { ServicePrincipal, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Tracing, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource, SqsDlq } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { Topic } from 'aws-cdk-lib/aws-sns';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
@@ -14,6 +15,15 @@ export class ContestCheckerStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps = {}) {
     super(scope, id, props);
 
+    const assetsBucket = new Bucket(this, 'ContestAssets', {
+      removalPolicy: RemovalPolicy.RETAIN,
+      intelligentTieringConfigurations: [{
+        name: 'foo',
+        prefix: 'events/',
+        archiveAccessTierTime: Duration.days(90),
+        deepArchiveAccessTierTime: Duration.days(180),
+      }],
+    });
     // define resources here...
     const eventIndexName = 'event';
     const contestTable = new Table(this, 'ContestTable', {
@@ -85,9 +95,11 @@ export class ContestCheckerStack extends Stack {
       environment: {
         TABLE: contestTable.tableName,
         EVENT_INDEX_NAME: eventIndexName,
+        ASSET_BUCKET: assetsBucket.bucketName,
       },
       reservedConcurrentExecutions: 10,
     });
+    assetsBucket.grantWrite(checkerFunc);
     contestTable.grantReadWriteData(checkerFunc);
     checkerFunc.addPermission('api-gateway', {
       principal: new ServicePrincipal('apigateway.amazonaws.com'),
