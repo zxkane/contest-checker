@@ -1,7 +1,7 @@
 import * as path from 'path';
-import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput, aws_dynamodb as dynamodb } from 'aws-cdk-lib';
+import { App, Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
 import { BackupPlan, BackupResource } from 'aws-cdk-lib/aws-backup';
-// import { Table, AttributeType, TableEncryption, BillingMode, StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
+import { Table, AttributeType, TableEncryption, BillingMode, StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
 import { ServicePrincipal, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Tracing, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource, SqsDlq } from 'aws-cdk-lib/aws-lambda-event-sources';
@@ -16,14 +16,14 @@ export class ContestCheckerStack extends Stack {
 
     // define resources here...
     const eventIndexName = 'event';
-    const contestTable = new dynamodb.Table(this, 'ContestTable', {
-      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+    const contestTable = new Table(this, 'ContestTable', {
+      partitionKey: { name: 'pk', type: AttributeType.STRING },
       removalPolicy: RemovalPolicy.DESTROY,
       contributorInsightsEnabled: true,
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      encryption: TableEncryption.AWS_MANAGED,
+      billingMode: BillingMode.PAY_PER_REQUEST,
       pointInTimeRecovery: true,
-      stream: dynamodb.StreamViewType.NEW_IMAGE,
+      stream: StreamViewType.NEW_IMAGE,
     });
 
     const topic = new Topic(this, 'SubmissionNotifyTopic', {

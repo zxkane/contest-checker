@@ -387,7 +387,7 @@ export const handler: ContestCheckEventHandler = async (para, _context)=> {
 
           switch (contestRt) {
             case PASS:
-              body = `\n\t您好棒！AI小助手被您的程序打败了。恭喜获得咖啡电子兑换码: ${awardCode}`;
+              body = `\n\t您好棒！AI小助手被您的程序打败了。恭喜获得奈雪会员券兑换码: ${awardCode}`;
               break;
             case FAIL:
             case BANNED:
